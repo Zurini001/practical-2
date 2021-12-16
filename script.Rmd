@@ -1,0 +1,130 @@
+---
+title: "Graffiti"
+author: "Ruimin"
+date: "12/15/2021"
+output: html_document
+---
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(tmap)
+library(rgdal)
+library(broom)
+library(mapview)
+library(crosstalk)
+library(sf)
+library(sp)
+library(spdep)
+library(car)
+library(fs)
+library(janitor)
+library(here)
+```
+
+```{r}
+shape <- st_read(here::here("Census 2010_ Tracts for San Francisco", "geo_export_8bdea846-15a9-4305-bf6b-1134d1c105bb.shp"))%>%
+  st_transform(., crs=7131) # crs EPSG San Francisco is 7131
+
+#graffiti <- read_csv(here::here("Graffiti.csv"))
+graffiti <- read_csv(here::here("Graffiti.csv"))
+
+graffiti2<-graffiti%>%
+  separate(., Point, c("A", "B"), sep = ",") # has common
+  
+graffiti2$A<-parse_number(graffiti2$A) ## leading $ and grouping character , ignored
+graffiti2$B<-parse_number(graffiti2$B) ## leading $ and grouping character , ignored # no common
+
+graffiti3<- graffiti2%>%
+  filter(A !=	0 )%>%
+  filter(B != 0)%>%
+  st_as_sf(., coords = c("B", "A"), 
+                   crs = 4326)
+
+graffiti4<- graffiti3%>%
+filter(str_detect(Closed, "2019"))%>%
+  #filter(str_detect(`Request Type`, "Building"))%>%
+  st_transform(., crs=7131)
+
+# spatial filter
+
+graffiti_within <- graffiti4[shape, ,op=st_intersects]
+
+tmap_mode("plot")
+tm_shape(shape) +
+  tm_polygons(col = NA, alpha = 0.5) +
+tm_shape(graffiti4) +
+  tm_dots(col = "blue")
+# similarly with wk6 plot tm_shape(BoroughMap) +
+#  tm_polygons(col = NA, alpha = 0.5) +
+#tm_shape(BluePlaques) +
+#  tm_dots(col = "blue")
+
+  points_sf_joined <- shape%>%
+    st_join(graffiti4)%>%
+    add_count(geoid10)%>%
+    janitor::clean_names()%>%
+    #calculate area
+    mutate(area=st_area(.))%>%
+    #then density of the points per ward
+    mutate(density=n/area)%>%
+    dplyr::select(geoid10 , neighborhood, density)%>%
+    group_by(geoid10) %>%         
+  summarise(geoid10 = first(geoid10),
+          neighborhood= first(neighborhood),
+          density= first(density))
+
+  
+  
+```
+Now i will read in census data
+
+```{r}
+library(readr)
+library(janitor)
+
+census_family <- read_csv(here::here("household and family", "ACSST5Y2019.S1101_data_with_overlays_2021-12-15T184955.csv"), skip=1)%>%
+
+ census_family2 <- census_family%>%
+  clean_names()
+
+census_family3 <- shape %>%
+  mutate(joiner = paste("1400000US", geoid10, sep=""))
+
+```
+
+Preparing for point pattern (ppp) object
+```{r}
+library(spatstat)
+# clip the dara to our single borough
+graffiti4Sub <- graffiti4[shape,]
+
+
+# creat a sp object
+graffiti4Sub <- graffiti4Sub %>%
+  as(., 'Spatial')
+
+#now set a window as the borough boundary
+window <- as.owin(shape)
+plot(window)
+
+# creat a ppp object
+graffiti4Sub.ppp <- ppp(x=graffiti4Sub@coords[,1],
+                        y=graffiti4Sub@coords[,2],
+                        window=window)
+
+graffiti4Sub@coords[,1]
+
+# have a look at the new ppp object
+graffiti4Sub.ppp %>%
+  plot(.,pch=16, cex=0.5,
+       main="Graffiti Shape")
+
+
+```
+Point pattern analysis
+Kernel Density Estimation
+
+```{r}
+
+```
+
